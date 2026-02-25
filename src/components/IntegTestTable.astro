@@ -81,7 +81,7 @@
 
   const load = async () => {
     if (!supabaseUrl || !supabaseKey) {
-      setStatus("Could not load records.");
+      setStatus("Missing Supabase public environment variables.");
       return;
     }
 
@@ -93,7 +93,8 @@
       .order("created_at", { ascending: false });
 
     if (error) {
-      setStatus("Could not load records.");
+      setStatus(`Could not load records (${error.code ?? "unknown"}).`);
+      console.error("Supabase error:", error);
       return;
     }
 
