@@ -1,0 +1,164 @@
+---
+// Client-side island
+---
+
+<div class="records" data-component="integ-test-table">
+  <p class="records-status" data-status>Loading records...</p>
+  <div class="records-table" data-table hidden>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Created At</th>
+          <th>Comment</th>
+        </tr>
+      </thead>
+      <tbody data-rows></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  import { createClient } from "@supabase/supabase-js";
+
+  const root = document.querySelector("[data-component=\"integ-test-table\"]");
+  if (!root) {
+    throw new Error("IntegTestTable root not found");
+  }
+
+  const statusEl = root.querySelector("[data-status]");
+  const tableWrap = root.querySelector("[data-table]");
+  const rowsEl = root.querySelector("[data-rows]");
+
+  const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+  const supabaseKey = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  const setStatus = (text) => {
+    if (statusEl) {
+      statusEl.textContent = text;
+    }
+  };
+
+  const showTable = () => {
+    if (tableWrap) {
+      tableWrap.hidden = false;
+    }
+  };
+
+  const clearRows = () => {
+    if (rowsEl) {
+      rowsEl.innerHTML = "";
+    }
+  };
+
+  const formatDate = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  };
+
+  const renderRows = (rows) => {
+    clearRows();
+    if (!rowsEl) return;
+
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${row.id ?? ""}</td>
+        <td>${formatDate(row.created_at)}</td>
+        <td>${row.comment ?? ""}</td>
+      `;
+      rowsEl.appendChild(tr);
+    });
+  };
+
+  const load = async () => {
+    if (!supabaseUrl || !supabaseKey) {
+      setStatus("Could not load records.");
+      return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data, error } = await supabase
+      .from("integ_test_1")
+      .select("id, created_at, comment")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setStatus("Could not load records.");
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      setStatus("No records yet.");
+      return;
+    }
+
+    setStatus("");
+    renderRows(data);
+    showTable();
+  };
+
+  load();
+</script>
+
+<style>
+  .records {
+    margin: 2rem auto 0;
+    max-width: 900px;
+    padding: 0 1.5rem;
+    color: #fefbf5;
+    font-family: "VT323", "Courier New", monospace;
+  }
+
+  .records-status {
+    font-size: 1.1rem;
+    color: #f1e8d5;
+    margin: 0.5rem 0 0;
+    text-align: center;
+  }
+
+  .records-table {
+    margin-top: 1.5rem;
+    background: rgba(7, 10, 26, 0.35);
+    border: 1px solid rgba(241, 232, 213, 0.2);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 16px 40px rgba(5, 6, 16, 0.35);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 0.85rem 1rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(241, 232, 213, 0.12);
+    font-size: 1.05rem;
+  }
+
+  th {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.75rem;
+    color: #f7f06b;
+    font-family: "Press Start 2P", "Courier New", monospace;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  @media (max-width: 720px) {
+    th,
+    td {
+      padding: 0.7rem 0.75rem;
+      font-size: 0.95rem;
+    }
+  }
+</style>

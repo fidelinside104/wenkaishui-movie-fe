@@ -1,71 +1,56 @@
 ---
-import { getEntry } from "astro:content";
-import Alert from "../components/Alert.astro";
-import Guide from "../components/Guide.astro";
 import Layout from "../components/Layout.astro";
-import TableRow from "../components/TableRow.astro";
-import { supabase } from "../utils/database";
+import IntegTestTable from "../components/IntegTestTable.astro";
 
-export const prerender = false;
-
-let frameworks;
-let frameworksError;
-
-// Fetch frameworks data from Supabase if connection is set up
-if (supabase) {
-  const { data, error } = await supabase
-    .from("frameworks")
-    .select("*")
-    .order("likes", { ascending: false });
-  frameworks = data;
-  frameworksError = error;
-}
-
-// Get guides
-const connectGuide = await getEntry("guides", "guide-connect-supabase");
-const fetchDataGuide = await getEntry("guides", "guide-fetch-data");
+export const prerender = true;
 ---
 
-<Layout title="Web Frameworks">
-  {
-    supabase ? (
-      frameworks ? (
-        <>
-          <h1 class="mb-8 text-4xl font-bold">
-            Vote for Your Favorite Web Framework
-          </h1>
-          <table class="w-full text-left">
-            <thead>
-              <tr class="font-mono text-base border-t border-b">
-                <th>Name</th>
-                <th>Logo</th>
-                <th>Likes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {frameworks?.map((framework) => (
-                <TableRow framework={framework} />
-              ))}
-            </tbody>
-          </table>
-        </>
-      ) : (
-        <>
-          {frameworksError && (
-            <Alert
-              title={frameworksError.code}
-              text={frameworksError.message}
-              variant="error"
-            />
-          )}
-          {fetchDataGuide && <Guide guide={fetchDataGuide} />}
-        </>
-      )
-    ) : (
-      <>
-        <Alert title="Finish setting up your new site" text="Before your website is ready, you must complete the steps from the guide below to create, populate, and connect your Supabase database."/>
-        {connectGuide && <Guide guide={connectGuide} />}
-      </>
-    )
-  }
+<Layout title="Movie Night">
+  <section class="frontpage">
+    <p class="intro-eyebrow">Kaohsiung Movie Night</p>
+    <p class="intro-sub">
+      Development in progress, please come back later my fren
+    </p>
+    <IntegTestTable />
+  </section>
 </Layout>
+
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap");
+
+  :global(body) {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #300842 0%, #1b2050 50%, #0b2d55 100%);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  :global(main) {
+    width: 100%;
+  }
+
+  .frontpage {
+    font-family: "VT323", "Courier New", monospace;
+    color: #fefbf5;
+    padding: 2.5rem 0 4rem;
+    text-align: center;
+  }
+
+  .intro-eyebrow {
+    font-family: "Press Start 2P", "Courier New", monospace;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #f7f06b;
+    margin: 0;
+  }
+
+  .intro-sub {
+    font-size: 1.2rem;
+    color: #f1e8d5;
+    font-weight: 400;
+    margin: 0.75rem auto 0;
+  }
+</style>
