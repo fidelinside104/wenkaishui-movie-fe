@@ -1,0 +1,589 @@
+---
+// Client-side island
+---
+
+<div class="records" data-component="movie-table">
+  <div class="records-controls" data-controls hidden>
+    <div class="control">
+      <label class="control-label" for="sort-order">Order</label>
+      <select id="sort-order" class="control-input" data-sort>
+        <option value="asc">Time (Asc)</option>
+        <option value="desc">Time (Desc)</option>
+      </select>
+    </div>
+    <div class="control">
+      <label class="control-label" for="include-past">Include past</label>
+      <select id="include-past" class="control-input" data-include-past>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    </div>
+    <div class="control">
+      <span class="control-label">Cinemas</span>
+      <details class="multi-select" data-cinema-dropdown>
+        <summary class="multi-select-summary" data-cinema-summary>All cinemas</summary>
+        <div class="multi-select-panel">
+          <div class="multi-select-actions">
+            <button type="button" class="ghost-button" data-select-all>Select all</button>
+            <button type="button" class="ghost-button" data-deselect-all>Deselect all</button>
+          </div>
+          <div class="multi-select-options" data-cinema-options></div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <p class="records-status" data-status>Loading screenings...</p>
+  <div class="records-table" data-table hidden>
+    <table class="movie-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Cinema</th>
+          <th>Movie</th>
+        </tr>
+      </thead>
+      <tbody data-rows></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  import { createClient } from "@supabase/supabase-js";
+
+  const root = document.querySelector('[data-component="movie-table"]');
+  if (!root) {
+    throw new Error("MovieTable root not found");
+  }
+
+  const statusEl = root.querySelector("[data-status]") as HTMLElement | null;
+  const tableWrap = root.querySelector("[data-table]") as HTMLElement | null;
+  const rowsEl = root.querySelector("[data-rows]") as HTMLElement | null;
+  const controlsEl = root.querySelector("[data-controls]") as HTMLElement | null;
+  const sortEl = root.querySelector("[data-sort]") as HTMLSelectElement | null;
+  const includePastEl = root.querySelector(
+    "[data-include-past]"
+  ) as HTMLSelectElement | null;
+  const cinemaOptionsEl = root.querySelector("[data-cinema-options]") as HTMLElement | null;
+  const cinemaSummaryEl = root.querySelector("[data-cinema-summary]") as HTMLElement | null;
+  const cinemaDropdownEl = root.querySelector(
+    "[data-cinema-dropdown]"
+  ) as HTMLDetailsElement | null;
+  const selectAllBtn = root.querySelector("[data-select-all]") as HTMLButtonElement | null;
+  const deselectAllBtn = root.querySelector("[data-deselect-all]") as HTMLButtonElement | null;
+  const subtitleEl = document.querySelector("[data-subtitle]") as HTMLElement | null;
+
+  const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+  const supabaseKey = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+  type ScreeningRow = {
+    screening_time: string | null;
+    cinema_name: string | null;
+    movie_name: string | null;
+    screening_date: string | null;
+  };
+
+  let allRows: ScreeningRow[] = [];
+  let allCinemas: string[] = [];
+  let selectedCinemas = new Set<string>();
+  let sortOrder: "asc" | "desc" = "asc";
+  let includePast: "yes" | "no" = "yes";
+  let screeningDate: string | null = null;
+
+  const setStatus = (text: string) => {
+    if (statusEl) {
+      statusEl.textContent = text;
+    }
+  };
+
+  const showTable = () => {
+    if (tableWrap) {
+      tableWrap.hidden = false;
+    }
+  };
+
+  const showControls = () => {
+    if (controlsEl) {
+      controlsEl.hidden = false;
+    }
+  };
+
+  const clearRows = () => {
+    if (rowsEl) {
+      rowsEl.innerHTML = "";
+    }
+  };
+
+  const formatTime = (value: string | null | undefined) => {
+    if (!value) return "";
+    const match = value.match(/(\d{1,2}):(\d{2})/);
+    if (match) {
+      const hours = String(match[1]).padStart(2, "0");
+      const minutes = match[2];
+      return `${hours}:${minutes}`;
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const timeToMinutes = (value: string | null | undefined) => {
+    if (!value) return null;
+    const match = value.match(/(\d{1,2}):(\d{2})/);
+    if (match) {
+      const hours = Number.parseInt(match[1], 10);
+      const minutes = Number.parseInt(match[2], 10);
+      if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
+        return hours * 60 + minutes;
+      }
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.getHours() * 60 + date.getMinutes();
+  };
+
+  const getTaipeiMinutes = () => {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Taipei",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+    const parts = formatter.formatToParts(now);
+    const hourPart = parts.find((part) => part.type === "hour");
+    const minutePart = parts.find((part) => part.type === "minute");
+    const hours = hourPart ? Number.parseInt(hourPart.value, 10) : now.getHours();
+    const minutes = minutePart
+      ? Number.parseInt(minutePart.value, 10)
+      : now.getMinutes();
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+      return now.getHours() * 60 + now.getMinutes();
+    }
+    return hours * 60 + minutes;
+  };
+
+  const updateSubtitle = () => {
+    if (!subtitleEl || !screeningDate) return;
+    subtitleEl.textContent = `Showing results for ${screeningDate}`;
+  };
+
+  const renderRows = (rows: ScreeningRow[]) => {
+    clearRows();
+    if (!rowsEl) return;
+
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${formatTime(row.screening_time)}</td>
+        <td>${row.cinema_name ?? ""}</td>
+        <td>${row.movie_name ?? ""}</td>
+      `;
+      rowsEl.appendChild(tr);
+    });
+  };
+
+  const updateSummary = () => {
+    if (!cinemaSummaryEl) return;
+    if (selectedCinemas.size === 0) {
+      cinemaSummaryEl.textContent = "No cinemas selected";
+      return;
+    }
+
+    if (selectedCinemas.size === allCinemas.length) {
+      cinemaSummaryEl.textContent = "All cinemas";
+      return;
+    }
+
+    const list = allCinemas.filter((cinema) => selectedCinemas.has(cinema));
+    cinemaSummaryEl.textContent = `${list.length} selected`;
+  };
+
+  const renderCinemaOptions = () => {
+    if (!cinemaOptionsEl) return;
+    cinemaOptionsEl.innerHTML = "";
+
+    allCinemas.forEach((cinema) => {
+      const option = document.createElement("label");
+      option.className = "multi-select-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = cinema;
+      checkbox.checked = selectedCinemas.has(cinema);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selectedCinemas.add(cinema);
+        } else {
+          selectedCinemas.delete(cinema);
+        }
+        updateSummary();
+        applyFilters();
+      });
+
+      const span = document.createElement("span");
+      span.textContent = ` ${cinema}`;
+      option.appendChild(checkbox);
+      option.appendChild(span);
+      cinemaOptionsEl.appendChild(option);
+    });
+  };
+
+  const applyFilters = () => {
+    if (!allRows.length) {
+      setStatus("No screenings yet.");
+      return;
+    }
+
+    const filtered = allRows.filter((row) => {
+      const cinema = row.cinema_name ?? "";
+      const matchesCinema = selectedCinemas.has(cinema);
+      if (!matchesCinema) return false;
+      if (includePast === "yes") return true;
+      const rowMinutes = timeToMinutes(row.screening_time);
+      if (rowMinutes === null) return false;
+      return rowMinutes >= getTaipeiMinutes();
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      const aMinutes = timeToMinutes(a.screening_time) ?? 0;
+      const bMinutes = timeToMinutes(b.screening_time) ?? 0;
+      return sortOrder === "asc" ? aMinutes - bMinutes : bMinutes - aMinutes;
+    });
+
+    if (sorted.length === 0) {
+      setStatus("No screenings for selected cinemas.");
+    } else {
+      setStatus("");
+    }
+
+    renderRows(sorted);
+    showTable();
+  };
+
+  const load = async () => {
+    if (!supabaseUrl || !supabaseKey) {
+      setStatus("Missing Supabase public environment variables.");
+      return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+  const { data, error } = await supabase
+    .from("screenings_mini")
+    .select("screening_time, cinema_name, movie_name, screening_date");
+
+    if (error) {
+      setStatus(`Could not load screenings (${error.code ?? "unknown"}).`);
+      console.error("Supabase error:", error);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      setStatus("No screenings yet.");
+      return;
+    }
+
+    allRows = data;
+    screeningDate = data.find((row) => row.screening_date)?.screening_date ?? null;
+    allCinemas = Array.from(
+      new Set(
+        data
+          .map((row) => row.cinema_name)
+          .filter((cinema): cinema is string => Boolean(cinema && cinema.trim()))
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    selectedCinemas = new Set(allCinemas);
+
+    renderCinemaOptions();
+    updateSummary();
+    updateSubtitle();
+    showControls();
+    applyFilters();
+  };
+
+  if (sortEl) {
+    sortEl.addEventListener("change", () => {
+      sortOrder = sortEl.value === "desc" ? "desc" : "asc";
+      applyFilters();
+    });
+  }
+
+  if (includePastEl) {
+    includePastEl.addEventListener("change", () => {
+      includePast = includePastEl.value === "no" ? "no" : "yes";
+      applyFilters();
+    });
+  }
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", () => {
+      selectedCinemas = new Set(allCinemas);
+      renderCinemaOptions();
+      updateSummary();
+      applyFilters();
+    });
+  }
+
+  if (deselectAllBtn) {
+    deselectAllBtn.addEventListener("click", () => {
+      selectedCinemas = new Set();
+      renderCinemaOptions();
+      updateSummary();
+      applyFilters();
+    });
+  }
+
+  if (cinemaDropdownEl) {
+    document.addEventListener("click", (event) => {
+      if (!cinemaDropdownEl.open) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (!cinemaDropdownEl.contains(target)) {
+        cinemaDropdownEl.open = false;
+      }
+    });
+  }
+
+  load();
+</script>
+
+<style>
+  .records {
+    margin: 2rem auto 0;
+    max-width: 900px;
+    padding: 0 1.5rem;
+    color: #fefbf5;
+    font-family: "VT323", "Courier New", monospace;
+    --control-height: 30px;
+  }
+
+  .records-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 180px;
+  }
+
+  .control-label {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #f7f06b;
+    font-family: "Press Start 2P", "Courier New", monospace;
+  }
+
+  .control-input {
+    background: rgba(7, 10, 26, 0.7);
+    color: #fefbf5;
+    border: 1px solid rgba(241, 232, 213, 0.35);
+    border-radius: 10px;
+    padding: 0 0.75rem;
+    font-size: 1rem;
+    font-family: "VT323", "Courier New", monospace;
+    height: var(--control-height);
+    line-height: var(--control-height);
+  }
+
+  .multi-select {
+    position: relative;
+  }
+
+  .multi-select-summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0 0.75rem;
+    border-radius: 10px;
+    background: rgba(7, 10, 26, 0.7);
+    border: 1px solid rgba(241, 232, 213, 0.35);
+    color: #fefbf5;
+    font-size: 1rem;
+    min-width: 200px;
+    height: var(--control-height);
+    display: flex;
+    align-items: center;
+    line-height: normal;
+  }
+
+  .multi-select-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .multi-select-panel {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    width: 240px;
+    padding: 0.75rem;
+    border-radius: 12px;
+    background: rgba(7, 10, 26, 0.95);
+    border: 1px solid rgba(241, 232, 213, 0.2);
+    box-shadow: 0 12px 30px rgba(5, 6, 16, 0.4);
+  }
+
+  .multi-select-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+
+  .ghost-button {
+    border: 1px solid rgba(241, 232, 213, 0.3);
+    background: transparent;
+    color: #fefbf5;
+    padding: 0.35rem 0.6rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: "VT323", "Courier New", monospace;
+  }
+
+  .ghost-button:hover {
+    border-color: #f7f06b;
+    color: #f7f06b;
+  }
+
+  .multi-select-options {
+    display: grid;
+    gap: 0.4rem;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .multi-select-option {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    column-gap: 0.5rem;
+    align-items: center;
+    font-size: 0.95rem;
+    justify-items: start;
+    text-align: left;
+    width: 100%;
+    justify-content: start;
+  }
+
+  .multi-select-option input {
+    accent-color: #f7f06b;
+    width: 16px;
+    height: 16px;
+  }
+
+  .multi-select-option span {
+    text-align: left;
+  }
+
+  .records-status {
+    font-size: 1.1rem;
+    color: #f1e8d5;
+    margin: 0.5rem 0 0;
+    text-align: center;
+  }
+
+  .records-table {
+    margin-top: 1.5rem;
+    background: rgba(7, 10, 26, 0.35);
+    border: 1px solid rgba(241, 232, 213, 0.2);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 16px 40px rgba(5, 6, 16, 0.35);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 0.25rem 0.7rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(241, 232, 213, 0.12);
+    font-size: 0.9rem;
+  }
+
+  th {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.75rem;
+    color: #f7f06b;
+    font-family: "Press Start 2P", "Courier New", monospace;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  :global(.movie-table tbody tr:nth-child(odd) td) {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  :global(.movie-table tbody tr:nth-child(even) td) {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  th:nth-child(3),
+  td:nth-child(3) {
+    text-align: left !important;
+  }
+
+  :global(.movie-table td:nth-child(3)) {
+    text-align: left;
+  }
+
+  :global(.movie-table td) {
+    padding: 0.25rem 0.7rem;
+    line-height: 1.5;
+    font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  }
+
+  :global(.movie-table th) {
+    padding: 0.45rem 0.7rem;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 720px) {
+    .records-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .control {
+      width: 100%;
+    }
+
+    .multi-select-panel {
+      right: auto;
+      left: 0;
+      width: min(100%, 260px);
+    }
+
+    th,
+    td {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    :global(.movie-table td),
+    :global(.movie-table th) {
+      padding: 0.3rem 0.5rem;
+      line-height: 1.15;
+    }
+  }
+</style>

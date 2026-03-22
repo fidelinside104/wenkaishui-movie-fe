@@ -1,6 +1,6 @@
 ---
 import Layout from "../components/Layout.astro";
-import IntegTestTable from "../components/IntegTestTable.astro";
+import MovieTable from "../components/MovieTable.astro";
 
 export const prerender = true;
 ---
@@ -8,10 +8,10 @@ export const prerender = true;
 <Layout title="Movie Night">
   <section class="frontpage">
     <p class="intro-eyebrow">Kaohsiung Movie Night</p>
-    <p class="intro-sub">
+    <p class="intro-sub" data-subtitle>
       Development in progress, please come back later my fren
     </p>
-    <IntegTestTable />
+    <MovieTable />
   </section>
 </Layout>
 
