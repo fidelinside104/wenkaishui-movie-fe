@@ -5,17 +5,10 @@
 <div class="records" data-component="movie-table">
   <div class="records-controls" data-controls hidden>
     <div class="control">
-      <label class="control-label" for="sort-order">Order</label>
-      <select id="sort-order" class="control-input" data-sort>
-        <option value="asc">Time (Asc)</option>
-        <option value="desc">Time (Desc)</option>
-      </select>
-    </div>
-    <div class="control">
       <label class="control-label" for="include-past">Include past</label>
       <select id="include-past" class="control-input" data-include-past>
         <option value="yes">Yes</option>
-        <option value="no">No</option>
+        <option value="no" selected>No</option>
       </select>
     </div>
     <div class="control">
@@ -60,7 +53,6 @@
   const tableWrap = root.querySelector("[data-table]") as HTMLElement | null;
   const rowsEl = root.querySelector("[data-rows]") as HTMLElement | null;
   const controlsEl = root.querySelector("[data-controls]") as HTMLElement | null;
-  const sortEl = root.querySelector("[data-sort]") as HTMLSelectElement | null;
   const includePastEl = root.querySelector(
     "[data-include-past]"
   ) as HTMLSelectElement | null;
@@ -72,6 +64,44 @@
   const selectAllBtn = root.querySelector("[data-select-all]") as HTMLButtonElement | null;
   const deselectAllBtn = root.querySelector("[data-deselect-all]") as HTMLButtonElement | null;
   const subtitleEl = document.querySelector("[data-subtitle]") as HTMLElement | null;
+  const posterModal = document.createElement("div");
+  posterModal.className = "poster-modal";
+  posterModal.hidden = true;
+  posterModal.innerHTML = `
+    <div class="poster-modal-backdrop" aria-hidden="true"></div>
+    <div class="poster-modal-content" role="dialog" aria-modal="true">
+      <img class="poster-modal-image" alt="" />
+    </div>
+  `;
+  document.body.appendChild(posterModal);
+
+  const posterModalImage = posterModal.querySelector(
+    ".poster-modal-image"
+  ) as HTMLImageElement | null;
+
+  const openPosterModal = (src: string, alt: string) => {
+    if (!posterModalImage) return;
+    posterModalImage.src = src;
+    posterModalImage.alt = alt;
+    posterModal.hidden = false;
+  };
+
+  const closePosterModal = () => {
+    if (!posterModalImage) return;
+    posterModal.hidden = true;
+    posterModalImage.src = "";
+    posterModalImage.alt = "";
+  };
+
+  posterModal.addEventListener("click", () => {
+    closePosterModal();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !posterModal.hidden) {
+      closePosterModal();
+    }
+  });
 
   const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
   const supabaseKey = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -79,15 +109,21 @@
   type ScreeningRow = {
     screening_time: string | null;
     cinema_name: string | null;
-    movie_name: string | null;
+    movie_name_en: string | null;
+    movie_version: string | null;
     screening_date: string | null;
+    poster_path: string | null;
+    overview_en: string | null;
+    movie_length: number | null;
+    release_date: string | null;
+    movie_name_raw: string | null;
+    tagline_en?: string | null;
   };
 
   let allRows: ScreeningRow[] = [];
   let allCinemas: string[] = [];
   let selectedCinemas = new Set<string>();
-  let sortOrder: "asc" | "desc" = "asc";
-  let includePast: "yes" | "no" = "yes";
+  let includePast: "yes" | "no" = "no";
   let screeningDate: string | null = null;
 
   const setStatus = (text: string) => {
@@ -169,21 +205,134 @@
 
   const updateSubtitle = () => {
     if (!subtitleEl || !screeningDate) return;
-    subtitleEl.textContent = `Showing results for ${screeningDate}`;
+    subtitleEl.textContent = `Showing results for today - ${screeningDate}`;
   };
 
   const renderRows = (rows: ScreeningRow[]) => {
     clearRows();
     if (!rowsEl) return;
 
-    rows.forEach((row) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
+    rows.forEach((row, index) => {
+      const movieName = row.movie_name_en?.trim() ?? "";
+      const movieVersion = row.movie_version?.trim() ?? "";
+      const movieLabel = movieName
+        ? movieVersion
+          ? `${movieName} (${movieVersion})`
+          : movieName
+        : "";
+      const tagline = row.tagline_en?.trim() ?? "";
+      const overview = row.overview_en?.trim() ?? "";
+      const movieLength =
+        row.movie_length === null || row.movie_length === undefined
+          ? ""
+          : String(row.movie_length);
+      const releaseDate = row.release_date?.trim() ?? "";
+      const movieNameRaw = row.movie_name_raw?.trim() ?? "";
+      const posterPath = row.poster_path?.trim() ?? "";
+      const posterUrl = posterPath ? `https://image.tmdb.org/t/p/w185${posterPath}` : "";
+      const posterFullUrl = posterPath
+        ? `https://image.tmdb.org/t/p/w500${posterPath}`
+        : "";
+      const detailsParts: string[] = [];
+
+      if (tagline) {
+        detailsParts.push(`<p class="details-tagline"><em>${tagline}</em></p>`);
+      }
+      if (overview) {
+        detailsParts.push(`<p class="details-overview">${overview}</p>`);
+      }
+      if (movieLength) {
+        detailsParts.push(
+          `<p class="details-line">Movie length: ${movieLength} minutes</p>`
+        );
+      }
+      if (releaseDate) {
+        detailsParts.push(
+          `<p class="details-line">Release date: ${releaseDate}</p>`
+        );
+      }
+      if (movieNameRaw) {
+        detailsParts.push(
+          `<p class="details-line">You will find this movie in the cinema as <span class="details-highlight">${movieNameRaw}</span>.</p>`
+        );
+      }
+
+      const mainRow = document.createElement("tr");
+      const detailsRow = document.createElement("tr");
+      const detailsId = `details-${index}`;
+
+      mainRow.className = `movie-row ${index % 2 === 0 ? "is-odd" : "is-even"}`;
+      mainRow.setAttribute("role", "button");
+      mainRow.setAttribute("tabindex", "0");
+      mainRow.setAttribute("aria-expanded", "false");
+      mainRow.setAttribute("aria-controls", detailsId);
+      mainRow.innerHTML = `
         <td>${formatTime(row.screening_time)}</td>
         <td>${row.cinema_name ?? ""}</td>
-        <td>${row.movie_name ?? ""}</td>
+        <td>
+          <div class="movie-cell">
+            <span class="movie-title">${movieLabel}</span>
+            <span class="movie-caret" aria-hidden="true"></span>
+          </div>
+        </td>
       `;
-      rowsEl.appendChild(tr);
+
+      detailsRow.id = detailsId;
+      detailsRow.className = "details-row";
+      detailsRow.hidden = true;
+      detailsRow.innerHTML = `
+        <td colspan="3">
+          <div class="details-panel">
+            <div class="details-grid${posterUrl ? "" : " no-poster"}">
+              ${
+                posterUrl
+                  ? `<div class="details-poster">
+                      <img src="${posterUrl}" alt="Poster for ${
+                        movieLabel || movieNameRaw || "movie"
+                      }" loading="lazy" data-full-src="${posterFullUrl}" />
+                    </div>`
+                  : ""
+              }
+              <div class="details-content">
+                ${detailsParts.join("")}
+              </div>
+            </div>
+          </div>
+        </td>
+      `;
+
+      const toggleDetails = () => {
+        const isOpen = mainRow.classList.toggle("is-open");
+        mainRow.setAttribute("aria-expanded", String(isOpen));
+        detailsRow.hidden = !isOpen;
+      };
+
+      mainRow.addEventListener("click", () => {
+        toggleDetails();
+      });
+
+      mainRow.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggleDetails();
+        }
+      });
+
+      rowsEl.appendChild(mainRow);
+      rowsEl.appendChild(detailsRow);
+
+      const posterImage = detailsRow.querySelector(
+        ".details-poster img"
+      ) as HTMLImageElement | null;
+      if (posterImage && posterFullUrl) {
+        posterImage.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openPosterModal(
+            posterFullUrl,
+            posterImage.alt || "Movie poster"
+          );
+        });
+      }
     });
   };
 
@@ -251,11 +400,11 @@
     const sorted = [...filtered].sort((a, b) => {
       const aMinutes = timeToMinutes(a.screening_time) ?? 0;
       const bMinutes = timeToMinutes(b.screening_time) ?? 0;
-      return sortOrder === "asc" ? aMinutes - bMinutes : bMinutes - aMinutes;
+      return aMinutes - bMinutes;
     });
 
     if (sorted.length === 0) {
-      setStatus("No screenings for selected cinemas.");
+      setStatus("No results - change the filters above");
     } else {
       setStatus("");
     }
@@ -272,9 +421,7 @@
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const { data, error } = await supabase
-    .from("screenings_mini")
-    .select("screening_time, cinema_name, movie_name, screening_date");
+  const { data, error } = await supabase.from("screenings_serve").select("*");
 
     if (error) {
       setStatus(`Could not load screenings (${error.code ?? "unknown"}).`);
@@ -305,13 +452,6 @@
     showControls();
     applyFilters();
   };
-
-  if (sortEl) {
-    sortEl.addEventListener("change", () => {
-      sortOrder = sortEl.value === "desc" ? "desc" : "asc";
-      applyFilters();
-    });
-  }
 
   if (includePastEl) {
     includePastEl.addEventListener("change", () => {
@@ -526,16 +666,176 @@
     font-family: "Press Start 2P", "Courier New", monospace;
   }
 
-  tr:last-child td {
+  :global(.movie-table tbody tr:last-child td) {
     border-bottom: none;
   }
 
-  :global(.movie-table tbody tr:nth-child(odd) td) {
+  :global(.movie-table tr.movie-row) {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  :global(.movie-table tr.movie-row td) {
+    transition: background 0.2s ease;
+  }
+
+  :global(.movie-table tr.movie-row.is-odd td) {
     background: rgba(255, 255, 255, 0.08);
   }
 
-  :global(.movie-table tbody tr:nth-child(even) td) {
+  :global(.movie-table tr.movie-row.is-even td) {
     background: rgba(255, 255, 255, 0.02);
+  }
+
+  :global(.movie-table tr.movie-row:hover td) {
+    background: rgba(247, 240, 107, 0.12);
+  }
+
+  :global(.movie-table tr.movie-row.is-open td) {
+    background: rgba(247, 240, 107, 0.18);
+  }
+
+  :global(.movie-cell) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  :global(.movie-title) {
+    display: block;
+  }
+
+  :global(.movie-caret) {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid #f7f06b;
+    border-bottom: 2px solid #f7f06b;
+    transform: rotate(-45deg);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+  }
+
+  :global(.movie-row.is-open .movie-caret) {
+    transform: rotate(45deg);
+  }
+
+  :global(.movie-table tr.details-row td) {
+    padding: 0;
+    background: rgba(7, 10, 26, 0.6);
+    text-align: left;
+  }
+
+  :global(.details-panel) {
+    padding: 0.75rem 0.9rem;
+  }
+
+  :global(.details-grid) {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  :global(.details-grid.no-poster) {
+    gap: 0;
+  }
+
+  :global(.details-poster) {
+    flex: 0 0 auto;
+  }
+
+  :global(.details-poster img) {
+    width: 120px;
+    max-width: 100%;
+    border-radius: 10px;
+    box-shadow: 0 10px 24px rgba(5, 6, 16, 0.35);
+    display: block;
+    cursor: pointer;
+  }
+
+  :global(.details-content) {
+    flex: 1;
+    min-width: 0;
+    color: #f1e8d5;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+
+  :global(.details-tagline) {
+    margin: 0 0 0.35rem;
+    color: #f7f06b;
+  }
+
+  :global(.details-overview) {
+    margin: 0 0 0.5rem;
+  }
+
+  :global(.details-line) {
+    margin: 0 0 0.35rem;
+  }
+
+  :global(.details-line:last-child) {
+    margin-bottom: 0;
+  }
+
+  :global(.details-highlight) {
+    color: #f7f06b;
+  }
+
+  :global(.poster-modal) {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    animation: poster-fade-in 160ms ease;
+  }
+
+  :global(.poster-modal[hidden]) {
+    display: none;
+  }
+
+  :global(.poster-modal-backdrop) {
+    position: absolute;
+    inset: 0;
+    background: rgba(5, 6, 16, 0.82);
+  }
+
+  :global(.poster-modal-content) {
+    position: relative;
+    z-index: 1;
+    max-width: min(90vw, 520px);
+    max-height: 85vh;
+    animation: poster-zoom-in 180ms ease;
+  }
+
+  :global(.poster-modal-image) {
+    width: 100%;
+    height: auto;
+    max-height: 85vh;
+    border-radius: 12px;
+    display: block;
+    box-shadow: 0 20px 50px rgba(5, 6, 16, 0.5);
+  }
+
+  @keyframes poster-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes poster-zoom-in {
+    from {
+      transform: scale(0.96);
+    }
+    to {
+      transform: scale(1);
+    }
   }
 
   th:nth-child(3),
@@ -584,6 +884,14 @@
     :global(.movie-table th) {
       padding: 0.3rem 0.5rem;
       line-height: 1.15;
+    }
+
+    :global(.details-grid) {
+      flex-direction: column;
+    }
+
+    :global(.details-poster img) {
+      width: min(140px, 45vw);
     }
   }
 </style>
