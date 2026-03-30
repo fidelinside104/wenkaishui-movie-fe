@@ -292,7 +292,7 @@
       const rawGenres = row.genres?.trim() ?? "";
       const genreList = rawGenres
         .split(",")
-        .map((genre) => genre.trim())
+        .map((genre: string) => genre.trim())
         .filter(Boolean);
       const genresLabel = genreList.length === 1 ? "Genre" : "Genres";
       const genresText = genreList.join(", ");
@@ -300,7 +300,7 @@
       const rawCountries = row.orig_country?.trim() ?? "";
       const countryList = rawCountries
         .split(",")
-        .map((country) => country.trim())
+        .map((country: string) => country.trim())
         .filter(Boolean);
       const countryLabel = countryList.length === 1 ? "Original country" : "Original countries";
       const countryText = countryList.join(", ");
@@ -711,7 +711,7 @@
           .flatMap((row) =>
             (row.genres ?? "")
               .split(",")
-              .map((genre) => genre.trim())
+              .map((genre: string) => genre.trim())
               .filter(Boolean)
           )
       )
