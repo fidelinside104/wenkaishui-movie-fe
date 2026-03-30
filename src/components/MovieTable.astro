@@ -24,6 +24,38 @@
         </div>
       </details>
     </div>
+    <div class="control">
+      <span class="control-label">Movies</span>
+      <details class="multi-select" data-movie-dropdown>
+        <summary class="multi-select-summary" data-movie-summary>All movies</summary>
+        <div class="multi-select-panel">
+          <input
+            type="text"
+            class="multi-select-search"
+            data-movie-search
+            placeholder="Search movies"
+          />
+          <div class="multi-select-actions">
+            <button type="button" class="ghost-button" data-movie-select-all>Select all</button>
+            <button type="button" class="ghost-button" data-movie-deselect-all>Deselect all</button>
+          </div>
+          <div class="multi-select-options" data-movie-options></div>
+        </div>
+      </details>
+    </div>
+    <div class="control">
+      <span class="control-label">Genres</span>
+      <details class="multi-select" data-genre-dropdown>
+        <summary class="multi-select-summary" data-genre-summary>All genres</summary>
+        <div class="multi-select-panel">
+          <div class="multi-select-actions">
+            <button type="button" class="ghost-button" data-genre-select-all>Select all</button>
+            <button type="button" class="ghost-button" data-genre-deselect-all>Deselect all</button>
+          </div>
+          <div class="multi-select-options" data-genre-options></div>
+        </div>
+      </details>
+    </div>
   </div>
 
   <p class="records-status" data-status>Loading screenings...</p>
@@ -63,6 +95,31 @@
   ) as HTMLDetailsElement | null;
   const selectAllBtn = root.querySelector("[data-select-all]") as HTMLButtonElement | null;
   const deselectAllBtn = root.querySelector("[data-deselect-all]") as HTMLButtonElement | null;
+  const movieOptionsEl = root.querySelector("[data-movie-options]") as HTMLElement | null;
+  const movieSummaryEl = root.querySelector("[data-movie-summary]") as HTMLElement | null;
+  const movieDropdownEl = root.querySelector(
+    "[data-movie-dropdown]"
+  ) as HTMLDetailsElement | null;
+  const movieSearchEl = root.querySelector(
+    "[data-movie-search]"
+  ) as HTMLInputElement | null;
+  const movieSelectAllBtn = root.querySelector(
+    "[data-movie-select-all]"
+  ) as HTMLButtonElement | null;
+  const movieDeselectAllBtn = root.querySelector(
+    "[data-movie-deselect-all]"
+  ) as HTMLButtonElement | null;
+  const genreOptionsEl = root.querySelector("[data-genre-options]") as HTMLElement | null;
+  const genreSummaryEl = root.querySelector("[data-genre-summary]") as HTMLElement | null;
+  const genreDropdownEl = root.querySelector(
+    "[data-genre-dropdown]"
+  ) as HTMLDetailsElement | null;
+  const genreSelectAllBtn = root.querySelector(
+    "[data-genre-select-all]"
+  ) as HTMLButtonElement | null;
+  const genreDeselectAllBtn = root.querySelector(
+    "[data-genre-deselect-all]"
+  ) as HTMLButtonElement | null;
   const subtitleEl = document.querySelector("[data-subtitle]") as HTMLElement | null;
   const posterModal = document.createElement("div");
   posterModal.className = "poster-modal";
@@ -117,14 +174,24 @@
     movie_length: number | null;
     release_date: string | null;
     movie_name_raw: string | null;
+    genres?: string | null;
+    orig_language?: string | null;
+    orig_country?: string | null;
+    cinema_link?: string | null;
+    tmdb_id?: number | null;
     tagline_en?: string | null;
   };
 
   let allRows: ScreeningRow[] = [];
   let allCinemas: string[] = [];
+  let allMovies: string[] = [];
+  let allGenres: string[] = [];
   let selectedCinemas = new Set<string>();
+  let selectedMovies = new Set<string>();
+  let selectedGenres = new Set<string>();
   let includePast: "yes" | "no" = "no";
   let screeningDate: string | null = null;
+  let movieSearchQuery = "";
 
   const setStatus = (text: string) => {
     if (statusEl) {
@@ -222,12 +289,31 @@
         : "";
       const tagline = row.tagline_en?.trim() ?? "";
       const overview = row.overview_en?.trim() ?? "";
+      const rawGenres = row.genres?.trim() ?? "";
+      const genreList = rawGenres
+        .split(",")
+        .map((genre) => genre.trim())
+        .filter(Boolean);
+      const genresLabel = genreList.length === 1 ? "Genre" : "Genres";
+      const genresText = genreList.join(", ");
+      const origLanguage = row.orig_language?.trim() ?? "";
+      const rawCountries = row.orig_country?.trim() ?? "";
+      const countryList = rawCountries
+        .split(",")
+        .map((country) => country.trim())
+        .filter(Boolean);
+      const countryLabel = countryList.length === 1 ? "Original country" : "Original countries";
+      const countryText = countryList.join(", ");
       const movieLength =
         row.movie_length === null || row.movie_length === undefined
           ? ""
           : String(row.movie_length);
       const releaseDate = row.release_date?.trim() ?? "";
       const movieNameRaw = row.movie_name_raw?.trim() ?? "";
+      const cinemaLink = row.cinema_link?.trim() ?? "";
+      const tmdbId =
+        row.tmdb_id === null || row.tmdb_id === undefined ? "" : String(row.tmdb_id);
+      const tmdbLink = tmdbId ? `https://www.themoviedb.org/movie/${tmdbId}` : "";
       const posterPath = row.poster_path?.trim() ?? "";
       const posterUrl = posterPath ? `https://image.tmdb.org/t/p/w185${posterPath}` : "";
       const posterFullUrl = posterPath
@@ -235,26 +321,81 @@
         : "";
       const detailsParts: string[] = [];
 
+      const tmdbLinkInline =
+        tmdbLink && tagline
+          ? `<span class="details-links-inline"><a class="details-link" href="${tmdbLink}" target="_blank" rel="noopener noreferrer">TMDB link</a></span>`
+          : "";
+
       if (tagline) {
-        detailsParts.push(`<p class="details-tagline"><em>${tagline}</em></p>`);
+        detailsParts.push(
+          `<p class="details-tagline"><em>${tagline}</em>${tmdbLinkInline ? ` ${tmdbLinkInline}` : ""}</p>`
+        );
       }
       if (overview) {
         detailsParts.push(`<p class="details-overview">${overview}</p>`);
       }
-      if (movieLength) {
+      if (genresText) {
         detailsParts.push(
-          `<p class="details-line">Movie length: ${movieLength} minutes</p>`
+          `<p class="details-line">${genresLabel}: ${genresText}</p>`
         );
       }
-      if (releaseDate) {
-        detailsParts.push(
-          `<p class="details-line">Release date: ${releaseDate}</p>`
+      if (origLanguage || countryText || movieLength || releaseDate) {
+        const metaRows: string[] = [];
+        if (origLanguage || countryText) {
+          metaRows.push(`
+            <div class="details-meta-row">
+              ${
+                origLanguage
+                  ? `<span class="details-meta-item">Original language: ${origLanguage}</span>`
+                  : ""
+              }
+              ${
+                countryText
+                  ? `<span class="details-meta-item">${countryLabel}: ${countryText}</span>`
+                  : ""
+              }
+            </div>
+          `);
+        }
+        if (movieLength || releaseDate) {
+          metaRows.push(`
+            <div class="details-meta-row">
+              ${
+                movieLength
+                  ? `<span class="details-meta-item">Movie length: ${movieLength} minutes</span>`
+                  : ""
+              }
+              ${
+                releaseDate
+                  ? `<span class="details-meta-item">Release date: ${releaseDate}</span>`
+                  : ""
+              }
+            </div>
+          `);
+        }
+        detailsParts.push(`<div class="details-meta">${metaRows.join("")}</div>`);
+      }
+      const linkParts: string[] = [];
+      if (cinemaLink) {
+        linkParts.push(
+          `<a class="details-link" href="${cinemaLink}" target="_blank" rel="noopener noreferrer">Cinema link</a>`
         );
       }
+      if (tmdbLink && !tagline) {
+        linkParts.push(
+          `<a class="details-link" href="${tmdbLink}" target="_blank" rel="noopener noreferrer">TMDB link</a>`
+        );
+      }
+      const linksInline = linkParts.length
+        ? `<span class="details-links-inline">${linkParts.join("")}</span>`
+        : "";
+
       if (movieNameRaw) {
         detailsParts.push(
-          `<p class="details-line">You will find this movie in the cinema as <span class="details-highlight">${movieNameRaw}</span>.</p>`
+          `<p class="details-line">You will find this movie in the cinema as <span class="details-highlight">${movieNameRaw}</span>.${linksInline ? ` ${linksInline}` : ""}</p>`
         );
+      } else if (linksInline) {
+        detailsParts.push(`<p class="details-line">${linksInline}</p>`);
       }
 
       const mainRow = document.createElement("tr");
@@ -352,6 +493,22 @@
     cinemaSummaryEl.textContent = `${list.length} selected`;
   };
 
+  const updateMovieSummary = () => {
+    if (!movieSummaryEl) return;
+    if (selectedMovies.size === 0) {
+      movieSummaryEl.textContent = "No movies selected";
+      return;
+    }
+
+    if (selectedMovies.size === allMovies.length) {
+      movieSummaryEl.textContent = "All movies";
+      return;
+    }
+
+    const list = allMovies.filter((movie) => selectedMovies.has(movie));
+    movieSummaryEl.textContent = `${list.length} selected`;
+  };
+
   const renderCinemaOptions = () => {
     if (!cinemaOptionsEl) return;
     cinemaOptionsEl.innerHTML = "";
@@ -381,6 +538,86 @@
     });
   };
 
+  const updateGenreSummary = () => {
+    if (!genreSummaryEl) return;
+    if (selectedGenres.size === 0) {
+      genreSummaryEl.textContent = "No genres selected";
+      return;
+    }
+
+    if (selectedGenres.size === allGenres.length) {
+      genreSummaryEl.textContent = "All genres";
+      return;
+    }
+
+    const list = allGenres.filter((genre) => selectedGenres.has(genre));
+    genreSummaryEl.textContent = `${list.length} selected`;
+  };
+
+  const renderMovieOptions = () => {
+    if (!movieOptionsEl) return;
+    movieOptionsEl.innerHTML = "";
+
+    const filteredMovies = movieSearchQuery
+      ? allMovies.filter((movie) =>
+          movie.toLowerCase().includes(movieSearchQuery)
+        )
+      : allMovies;
+
+    filteredMovies.forEach((movie) => {
+      const option = document.createElement("label");
+      option.className = "multi-select-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = movie;
+      checkbox.checked = selectedMovies.has(movie);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selectedMovies.add(movie);
+        } else {
+          selectedMovies.delete(movie);
+        }
+        updateMovieSummary();
+        applyFilters();
+      });
+
+      const span = document.createElement("span");
+      span.textContent = ` ${movie}`;
+      option.appendChild(checkbox);
+      option.appendChild(span);
+      movieOptionsEl.appendChild(option);
+    });
+  };
+
+  const renderGenreOptions = () => {
+    if (!genreOptionsEl) return;
+    genreOptionsEl.innerHTML = "";
+
+    allGenres.forEach((genre) => {
+      const option = document.createElement("label");
+      option.className = "multi-select-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = genre;
+      checkbox.checked = selectedGenres.has(genre);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selectedGenres.add(genre);
+        } else {
+          selectedGenres.delete(genre);
+        }
+        updateGenreSummary();
+        applyFilters();
+      });
+
+      const span = document.createElement("span");
+      span.textContent = ` ${genre}`;
+      option.appendChild(checkbox);
+      option.appendChild(span);
+      genreOptionsEl.appendChild(option);
+    });
+  };
+
   const applyFilters = () => {
     if (!allRows.length) {
       setStatus("No screenings yet.");
@@ -391,6 +628,21 @@
       const cinema = row.cinema_name ?? "";
       const matchesCinema = selectedCinemas.has(cinema);
       if (!matchesCinema) return false;
+      const movieName = row.movie_name_en?.trim() ?? "";
+      if (movieName) {
+        const matchesMovie = selectedMovies.has(movieName);
+        if (!matchesMovie) return false;
+      }
+      const rowGenres = (row.genres ?? "")
+        .split(",")
+        .map((genre) => genre.trim())
+        .filter(Boolean);
+      if (rowGenres.length > 0) {
+        const matchesGenre = rowGenres.some((genre) => selectedGenres.has(genre));
+        if (!matchesGenre) return false;
+      } else if (!selectedGenres.has("Genre unknown")) {
+        return false;
+      }
       if (includePast === "yes") return true;
       const rowMinutes = timeToMinutes(row.screening_time);
       if (rowMinutes === null) return false;
@@ -444,10 +696,39 @@
       )
     ).sort((a, b) => a.localeCompare(b));
 
+    allMovies = Array.from(
+      new Set(
+        data
+          .map((row) => row.movie_name_en)
+          .filter((movie): movie is string => Boolean(movie && movie.trim()))
+          .map((movie) => movie.trim())
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    allGenres = Array.from(
+      new Set(
+        data
+          .flatMap((row) =>
+            (row.genres ?? "")
+              .split(",")
+              .map((genre) => genre.trim())
+              .filter(Boolean)
+          )
+      )
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .concat("Genre unknown");
+
     selectedCinemas = new Set(allCinemas);
+    selectedMovies = new Set(allMovies);
+    selectedGenres = new Set(allGenres);
 
     renderCinemaOptions();
     updateSummary();
+    renderMovieOptions();
+    updateMovieSummary();
+    renderGenreOptions();
+    updateGenreSummary();
     updateSubtitle();
     showControls();
     applyFilters();
@@ -478,6 +759,49 @@
     });
   }
 
+  if (movieSelectAllBtn) {
+    movieSelectAllBtn.addEventListener("click", () => {
+      selectedMovies = new Set(allMovies);
+      renderMovieOptions();
+      updateMovieSummary();
+      applyFilters();
+    });
+  }
+
+  if (movieDeselectAllBtn) {
+    movieDeselectAllBtn.addEventListener("click", () => {
+      selectedMovies = new Set();
+      renderMovieOptions();
+      updateMovieSummary();
+      applyFilters();
+    });
+  }
+
+  if (genreSelectAllBtn) {
+    genreSelectAllBtn.addEventListener("click", () => {
+      selectedGenres = new Set(allGenres);
+      renderGenreOptions();
+      updateGenreSummary();
+      applyFilters();
+    });
+  }
+
+  if (genreDeselectAllBtn) {
+    genreDeselectAllBtn.addEventListener("click", () => {
+      selectedGenres = new Set();
+      renderGenreOptions();
+      updateGenreSummary();
+      applyFilters();
+    });
+  }
+
+  if (movieSearchEl) {
+    movieSearchEl.addEventListener("input", () => {
+      movieSearchQuery = movieSearchEl.value.trim().toLowerCase();
+      renderMovieOptions();
+    });
+  }
+
   if (cinemaDropdownEl) {
     document.addEventListener("click", (event) => {
       if (!cinemaDropdownEl.open) return;
@@ -485,6 +809,28 @@
       if (!(target instanceof Node)) return;
       if (!cinemaDropdownEl.contains(target)) {
         cinemaDropdownEl.open = false;
+      }
+    });
+  }
+
+  if (movieDropdownEl) {
+    document.addEventListener("click", (event) => {
+      if (!movieDropdownEl.open) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (!movieDropdownEl.contains(target)) {
+        movieDropdownEl.open = false;
+      }
+    });
+  }
+
+  if (genreDropdownEl) {
+    document.addEventListener("click", (event) => {
+      if (!genreDropdownEl.open) return;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (!genreDropdownEl.contains(target)) {
+        genreDropdownEl.open = false;
       }
     });
   }
@@ -574,6 +920,20 @@
     box-shadow: 0 12px 30px rgba(5, 6, 16, 0.4);
   }
 
+  .multi-select-search {
+    width: 100%;
+    margin-bottom: 0.6rem;
+    background: rgba(7, 10, 26, 0.7);
+    color: #fefbf5;
+    border: 1px solid rgba(241, 232, 213, 0.35);
+    border-radius: 10px;
+    padding: 0 0.6rem;
+    font-size: 0.95rem;
+    font-family: "VT323", "Courier New", monospace;
+    height: var(--control-height);
+    line-height: var(--control-height);
+  }
+
   .multi-select-actions {
     display: flex;
     gap: 0.5rem;
@@ -605,6 +965,30 @@
     padding-right: 0.25rem;
     justify-items: start;
     text-align: left;
+    scrollbar-color: #f7f06b rgba(7, 10, 26, 0.7);
+    scrollbar-width: thin;
+  }
+
+  .multi-select-options::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .multi-select-options::-webkit-scrollbar-track {
+    background: rgba(7, 10, 26, 0.7);
+    border-radius: 8px;
+  }
+
+  .multi-select-options::-webkit-scrollbar-thumb {
+    background: #f7f06b;
+    border-radius: 8px;
+  }
+
+  .multi-select-options::-webkit-scrollbar-thumb:hover {
+    background: #fbf58a;
+  }
+
+  :global([data-movie-options]) {
+    max-height: 400px;
   }
 
   .multi-select-option {
@@ -783,6 +1167,48 @@
     color: #f7f06b;
   }
 
+  :global(.details-meta) {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0 0 0.45rem;
+  }
+
+  :global(.details-meta-row) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  :global(.details-meta-item) {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  :global(.details-links-inline) {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 0.9rem;
+    margin-left: 0.6rem;
+  }
+
+  :global(.details-link) {
+    color: #f7f06b;
+    text-decoration: none;
+    position: relative;
+  }
+
+  :global(.details-link::after) {
+    content: " ✨";
+    font-size: 0.95em;
+  }
+
+  :global(.details-link:hover) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
   :global(.poster-modal) {
     position: fixed;
     inset: 0;
@@ -892,6 +1318,14 @@
 
     :global(.details-poster img) {
       width: min(140px, 45vw);
+    }
+
+    :global(.details-meta-row) {
+      grid-template-columns: 1fr;
+    }
+
+    :global(.details-meta-item) {
+      white-space: normal;
     }
   }
 </style>
